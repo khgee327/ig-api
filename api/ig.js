@@ -13,7 +13,6 @@ const HOSTS = ['https://i.instagram.com', 'https://www.instagram.com'];
 
 async function fetchUser(username) {
   const codes = [];
-  // 1) 인스타 내부 API (두 주소 모두 시도 — 서버에서 오면 404로 막는 경우가 있어서)
   for (const host of HOSTS) {
     try {
       const r = await fetch(host + '/api/v1/users/web_profile_info/?username=' + encodeURIComponent(username), {
@@ -26,7 +25,6 @@ async function fetchUser(username) {
       }
     } catch (e) { codes.push(host.replace('https://', '') + ':ERR'); }
   }
-  // 2) 프로필 페이지의 미리보기 문구에서 팔로워 수만 읽기
   try {
     const r = await fetch('https://www.instagram.com/' + encodeURIComponent(username) + '/', {
       headers: {
@@ -39,7 +37,6 @@ async function fetchUser(username) {
     if (r.status === 200) {
       const raw = await r.text();
       const html = raw.replace(/&#x2c;|&#44;/gi, ',').replace(/&#x40;|&#64;/gi, '@').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-      // 메타 태그 속성 순서와 상관없이, 페이지 전체에서 "팔로워, 팔로잉, 게시물" 문구를 찾기
       let f = null, g = null, p = null;
       const en = html.match(/([\d.,]+\s?[KMB]?)\s+Followers?,\s*([\d.,]+\s?[KMB]?)\s+Following,\s*([\d.,]+\s?[KMB]?)\s+Posts?/i);
       const ko = html.match(/팔로워\s*([\d.,]+\s?[만천억]?)\s*명?,\s*팔로잉\s*([\d.,]+\s?[만천억]?)\s*명?,\s*게시물\s*([\d.,]+\s?[만천억]?)\s*개?/);
@@ -79,16 +76,10 @@ function summarize(u) {
   const followers = u.edge_followed_by ? u.edge_followed_by.count : null;
   const avgLikes = avg(likes), avgComments = avg(cmts);
   return {
-    ok: true,
-    username: u.username,
-    name: u.full_name || '',
-    followers,
+    ok: true, username: u.username, name: u.full_name || '', followers,
     following: u.edge_follow ? u.edge_follow.count : null,
     posts: u.edge_owner_to_timeline_media ? u.edge_owner_to_timeline_media.count : null,
-    isPrivate: !!u.is_private,
-    sample: edges.length,
-    avgLikes,
-    avgComments,
+    isPrivate: !!u.is_private, sample: edges.length, avgLikes, avgComments,
     engagement: (followers && avgLikes != null) ? ((avgLikes + (avgComments || 0)) / followers * 100).toFixed(2) : null
   };
 }
@@ -98,10 +89,8 @@ module.exports = async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   const q = req.query || {};
   if (q.key !== KEY) return res.status(200).send(JSON.stringify({ ok: false, error: '연동 키가 맞지 않아요' }));
-
   const username = String(q.username || '').replace(/^@/, '').trim().toLowerCase();
   if (!username) return res.status(200).send(JSON.stringify({ ok: false, error: '아이디가 비어 있어요' }));
-
   try {
     const r = await fetchUser(username);
     if (r.notFound) return res.status(200).send(JSON.stringify({ ok: false, error: '@' + username + ' 계정을 찾을 수 없어요' }));
@@ -109,8 +98,7 @@ module.exports = async (req, res) => {
       res.setHeader('Cache-Control', 's-maxage=21600, stale-while-revalidate=86400');
       return res.status(200).send(JSON.stringify(r.lite));
     }
-    if (!r.user) return res.status(200).send(JSON.stringify({ ok: false, error: '인스타가 요청을 막았어요. 잠시 후 다시 시도해 주세요.', debug: r.codes }));
-    // 같은 계정은 6시간 동안 Vercel이 결과를 재사용 (인스타 차단 방지)
+    if (!r.user) return res.status(200).send(JSON.stringify({ ok: false, error: '인스타가 요청을 막았어요. 잠시 후 다시 시도해 주세요.', ver: 3, debug: r.codes }));
     res.setHeader('Cache-Control', 's-maxage=21600, stale-while-revalidate=86400');
     return res.status(200).send(JSON.stringify(summarize(r.user)));
   } catch (e) {
