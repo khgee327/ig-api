@@ -37,17 +37,25 @@ async function fetchUser(username) {
     });
     codes.push('page:' + r.status);
     if (r.status === 200) {
-      const html = await r.text();
-      const meta = (html.match(/<meta[^>]+(?:property|name)="(?:og:)?description"[^>]+content="([^"]+)"/i) || [])[1] || '';
-      const m = meta.replace(/&#x2c;|&#44;/gi, ',').match(/([\d.,]+[KMB]?)\s+Followers?,\s*([\d.,]+[KMB]?)\s+Following,\s*([\d.,]+[KMB]?)\s+Posts?/i);
-      if (m) {
-        const title = (html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/i) || [])[1] || '';
+      const raw = await r.text();
+      const html = raw.replace(/&#x2c;|&#44;/gi, ',').replace(/&#x40;|&#64;/gi, '@').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+      // 메타 태그 속성 순서와 상관없이, 페이지 전체에서 "팔로워, 팔로잉, 게시물" 문구를 찾기
+      let f = null, g = null, p = null;
+      const en = html.match(/([\d.,]+\s?[KMB]?)\s+Followers?,\s*([\d.,]+\s?[KMB]?)\s+Following,\s*([\d.,]+\s?[KMB]?)\s+Posts?/i);
+      const ko = html.match(/팔로워\s*([\d.,]+\s?[만천억]?)\s*명?,\s*팔로잉\s*([\d.,]+\s?[만천억]?)\s*명?,\s*게시물\s*([\d.,]+\s?[만천억]?)\s*개?/);
+      if (en) { f = toNum(en[1]); g = toNum(en[2]); p = toNum(en[3]); }
+      else if (ko) { f = toNum(ko[1]); g = toNum(ko[2]); p = toNum(ko[3]); }
+      if (f != null) {
+        const title = (html.match(/<meta[^>]*property="og:title"[^>]*>/i) || [''])[0];
+        const tcontent = (title.match(/content="([^"]*)"/i) || [])[1] || '';
         return { lite: {
-          ok: true, username, name: title.replace(/\s*\(@[^)]*\).*$/, '').replace(/&#x[0-9a-f]+;/gi, '').trim(),
-          followers: toNum(m[1]), following: toNum(m[2]), posts: toNum(m[3]),
+          ok: true, username, name: tcontent.replace(/\s*\(@[^)]*\).*$/, '').replace(/&#x[0-9a-f]+;/gi, '').trim(),
+          followers: f, following: g, posts: p,
           isPrivate: false, sample: 0, avgLikes: null, avgComments: null, engagement: null
         } };
       }
+      codes.push('title:' + ((html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || '').trim().slice(0, 60));
+      codes.push('len:' + raw.length);
       if (/Page Not Found|isn.t available/i.test(html)) return { notFound: true };
     }
   } catch (e) { codes.push('page:ERR'); }
@@ -55,9 +63,10 @@ async function fetchUser(username) {
 }
 
 function toNum(t) {
-  t = String(t).replace(/,/g, '');
-  const mul = { K: 1e3, M: 1e6, B: 1e9 }[t.slice(-1).toUpperCase()] || 1;
-  return Math.round(parseFloat(t) * mul);
+  t = String(t).replace(/[,\s]/g, '');
+  const unit = t.slice(-1);
+  const mul = { K: 1e3, k: 1e3, M: 1e6, m: 1e6, B: 1e9, b: 1e9, '천': 1e3, '만': 1e4, '억': 1e8 }[unit];
+  return Math.round(parseFloat(mul ? t.slice(0, -1) : t) * (mul || 1));
 }
 
 function summarize(u) {
